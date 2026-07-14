@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
+using AspNetCoreRateLimit;
 using ExpenseTracker.Data;
 using ExpenseTracker.Middleware;
 using ExpenseTracker.Services;
@@ -12,10 +13,19 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
-// JWT Authentication - reads token from httpOnly cookie
+// Memory cache - required for rate limiting
+builder.Services.AddMemoryCache();
+
+// Rate limiting
+builder.Services.Configure<IpRateLimitOptions>(builder.Configuration.GetSection("IpRateLimiting"));
+builder.Services.Configure<IpRateLimitPolicies>(builder.Configuration.GetSection("IpRateLimitPolicies"));
+builder.Services.AddInMemoryRateLimiting();
+builder.Services.AddSingleton<IRateLimitConfiguration, RateLimitConfiguration>();
+
+// JWT Authentication - read from httpOnly cookie
 var jwtKey = builder.Configuration["Jwt:Key"]
     ?? Environment.GetEnvironmentVariable("JWT_SECRET_KEY")
-    ?? throw new InvalidOperationException("JWT key not configured. Set Jwt:Key in user-secrets or JWT_SECRET_KEY environment variable.");
+    ?? throw new InvalidOperationException("JWT key not configured. Set via user-secrets or environment variable.");
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -31,7 +41,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
         };
 
-        // Read JWT from "auth_token" cookie instead of Authorization header
+        // Read JWT from cookie instead of Authorization header
         options.Events = new JwtBearerEvents
         {
             OnMessageReceived = context =>
@@ -55,7 +65,7 @@ builder.Services.AddLogging();
 // Shared services
 builder.Services.AddScoped<IExpenseCalculator, ExpenseCalculator>();
 
-// CORS - must allow credentials for httpOnly cookies
+// CORS - allow credentials for cookies
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
@@ -74,7 +84,7 @@ using (var scope = app.Services.CreateScope())
     await db.Database.MigrateAsync();
 }
 
-// Global exception handling
+// Middleware pipeline - ORDER MATTERS
 app.UseMiddleware<ExceptionMiddleware>();
 
 if (app.Environment.IsDevelopment())
@@ -85,6 +95,10 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 app.UseCors("AllowFrontend");
+
+// Rate limiting - must be before authentication
+app.UseIpRateLimiting();
+
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
