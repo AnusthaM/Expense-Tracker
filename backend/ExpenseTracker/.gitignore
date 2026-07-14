@@ -1,0 +1,33 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+appsettings.Development.json
+appsettings.*.json
+!appsettings.json
+
+# Node
+node_modules/
+dist/
+.env.local
+.env.*.local
+*.log
+npm-debug.log*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets
+*.secret
+secrets.json
